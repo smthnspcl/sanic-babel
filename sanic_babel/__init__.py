@@ -15,15 +15,11 @@ from datetime import datetime
 from contextlib import contextmanager
 from itertools import repeat
 from babel import dates, numbers, support, Locale
-try:
-    from pytz.gae import pytz
-except ImportError:
-    from pytz import timezone, UTC
-else:
-    timezone = pytz.timezone
-    UTC = pytz.UTC
-
 from sanic_babel.speaklater import LazyString
+import pytz
+
+timezone = pytz.timezone
+UTC = pytz.utc
 
 
 def is_immutable(self):
@@ -112,6 +108,9 @@ class Babel:
     after the configuration was initialized.
     """
 
+    _get_translations = None
+    date_formats = None
+
     default_date_formats = ImmutableDict({
         'time':             'medium',
         'date':             'medium',
@@ -175,7 +174,7 @@ class Babel:
 
         if self._configure_jinja:
             if not hasattr(app, 'jinja_env'):
-                raise ValueError('app.jinja_env shoud be setup at first.')
+                raise ValueError('app.jinja_env should be setup at first.')
 
             app.jinja_env.filters.update(
                 datetimeformat=format_datetime,
@@ -410,7 +409,7 @@ def force_locale(locale, request=None):
         orig_attrs[key] = request.get(key, None)
 
     try:
-        babel.locale_selector_func = lambda request: locale
+        babel.locale_selector_func = lambda req: locale
         for key in orig_attrs:
             request[key] = None
         yield
@@ -420,7 +419,7 @@ def force_locale(locale, request=None):
             request[key] = value
 
 
-def _get_format(key, format, request):
+def _get_format(key, fmt, request):
     """A small helper for the datetime formatting functions.  Looks up
     format defaults for different kinds.
     """
@@ -429,41 +428,41 @@ def _get_format(key, format, request):
     else:
         formats = request.app.extensions['babel'].date_formats
 
-    if format is None:
-        format = formats[key]
+    if fmt is None:
+        fmt = formats[key]
 
-    if format in ('short', 'medium', 'full', 'long'):
-        rv = formats['{}.{}'.format(key, format)]
+    if fmt in ('short', 'medium', 'full', 'long'):
+        rv = formats['{}.{}'.format(key, fmt)]
         if rv is not None:
-            format = rv
+            fmt = rv
 
-    return format
+    return fmt
 
 
-def to_user_timezone(datetime, request=None):
+def to_user_timezone(dt, request=None):
     """Convert a datetime object to the user's timezone.  This automatically
     happens on all date formatting unless rebasing is disabled.  If you need
     to convert a :class:`datetime.datetime` object at any time to the user's
     timezone (as returned by :func:`get_timezone` this function can be used).
     """
-    if datetime.tzinfo is None:
-        datetime = datetime.replace(tzinfo=UTC)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
 
     tzinfo = get_timezone(request)
-    return tzinfo.normalize(datetime.astimezone(tzinfo))
+    return tzinfo.normalize(dt.astimezone(tzinfo))
 
 
-def to_utc(datetime, request=None):
+def to_utc(dt, request=None):
     """Convert a datetime object to UTC and drop tzinfo.  This is the
     opposite operation to :func:`to_user_timezone`.
     """
-    if datetime.tzinfo is None:
-        datetime = get_timezone(request).localize(datetime)
+    if dt.tzinfo is None:
+        dt = get_timezone(request).localize(dt)
 
-    return datetime.astimezone(UTC).replace(tzinfo=None)
+    return dt.astimezone(UTC).replace(tzinfo=None)
 
 
-def format_datetime(datetime=None, format=None, rebase=True, request=None):
+def format_datetime(dt=None, fmt=None, rebase=True, request=None):
     """Return a date formatted according to the given pattern.  If no
     :class:`~datetime.datetime` object is passed, the current time is
     assumed.  By default rebasing happens which causes the object to
@@ -479,12 +478,12 @@ def format_datetime(datetime=None, format=None, rebase=True, request=None):
     This function is also available in the template context as filter
     named `datetimeformat`.
     """
-    format = _get_format('datetime', format, request)
-    return _date_format(dates.format_datetime, datetime, format, rebase,
+    fmt = _get_format('datetime', fmt, request)
+    return _date_format(dates.format_datetime, dt, fmt, rebase,
                         request=request)
 
 
-def format_date(date=None, format=None, rebase=True, request=None):
+def format_date(date=None, fmt=None, rebase=True, request=None):
     """Return a date formatted according to the given pattern.  If no
     :class:`~datetime.datetime` or :class:`~datetime.date` object is passed,
     the current time is assumed.  By default rebasing happens which causes
@@ -503,12 +502,12 @@ def format_date(date=None, format=None, rebase=True, request=None):
     if rebase and isinstance(date, datetime):
         date = to_user_timezone(date)
 
-    format = _get_format('date', format, request)
-    return _date_format(dates.format_date, date, format, rebase,
+    fmt = _get_format('date', fmt, request)
+    return _date_format(dates.format_date, date, fmt, rebase,
                         request=request)
 
 
-def format_time(time=None, format=None, rebase=True, request=None):
+def format_time(time=None, fmt=None, rebase=True, request=None):
     """Return a time formatted according to the given pattern.  If no
     :class:`~datetime.datetime` object is passed, the current time is
     assumed.  By default rebasing happens which causes the object to
@@ -524,8 +523,8 @@ def format_time(time=None, format=None, rebase=True, request=None):
     This function is also available in the template context as filter
     named `timeformat`.
     """
-    format = _get_format('time', format, request)
-    return _date_format(dates.format_time, time, format, rebase,
+    fmt = _get_format('time', fmt, request)
+    return _date_format(dates.format_time, time, fmt, rebase,
                         request=request)
 
 
@@ -549,13 +548,13 @@ def format_timedelta(datetime_or_timedelta, granularity='second',
     )
 
 
-def _date_format(formatter, obj, format, rebase, request=None, **extra):
+def _date_format(formatter, obj, fmt, rebase, request=None, **extra):
     """Internal helper that formats the date."""
     locale = get_locale(request)
     extra = {}
     if formatter is not dates.format_date and rebase:
         extra['tzinfo'] = get_timezone(request)
-    return formatter(obj, format, locale=locale, **extra)
+    return formatter(obj, fmt, locale=locale, **extra)
 
 
 def format_number(number, request=None):
@@ -570,26 +569,26 @@ def format_number(number, request=None):
     return numbers.format_number(number, locale=locale)
 
 
-def format_decimal(number, format=None, request=None):
+def format_decimal(number, fmt=None, request=None):
     """Return the given decimal number formatted for the locale in request
 
     :param number: the number to format
-    :param format: the format to use
+    :param fmt: the format to use
     :param request: the current Request object
     :return: the formatted number
     :rtype: str
     """
     locale = get_locale(request)
-    return numbers.format_decimal(number, format=format, locale=locale)
+    return numbers.format_decimal(number, format=fmt, locale=locale)
 
 
-def format_currency(number, currency, format=None, currency_digits=True,
+def format_currency(number, currency, fmt=None, currency_digits=True,
                     format_type='standard', request=None):
     """Return the given number formatted for the locale in request
 
     :param number: the number to format
     :param currency: the currency code
-    :param format: the format to use
+    :param fmt: the format to use
     :param currency_digits: use the currency’s number of decimal digits
                             [default: True]
     :param format_type: the currency format type to use
@@ -602,37 +601,37 @@ def format_currency(number, currency, format=None, currency_digits=True,
     return numbers.format_currency(
         number,
         currency,
-        format=format,
+        format=fmt,
         locale=locale,
         currency_digits=currency_digits,
         format_type=format_type
     )
 
 
-def format_percent(number, format=None, request=None):
+def format_percent(number, fmt=None, request=None):
     """Return formatted percent value for the locale in request
 
     :param number: the number to format
-    :param format: the format to use
+    :param fmt: the format to use
     :param request: the current Request object
     :return: the formatted percent number
     :rtype: str
     """
     locale = get_locale(request)
-    return numbers.format_percent(number, format=format, locale=locale)
+    return numbers.format_percent(number, format=fmt, locale=locale)
 
 
-def format_scientific(number, format=None, request=None):
+def format_scientific(number, fmt=None, request=None):
     """Return value formatted in scientific notation for the locale in request
 
     :param number: the number to format
-    :param format: the format to use
+    :param fmt: the format to use
     :param request: the current Request object
     :return: the formatted percent number
     :rtype: str
     """
     locale = get_locale(request)
-    return numbers.format_scientific(number, format=format, locale=locale)
+    return numbers.format_scientific(number, format=fmt, locale=locale)
 
 
 def gettext(string, request=None, **variables):

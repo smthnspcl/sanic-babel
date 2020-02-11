@@ -30,7 +30,7 @@ setup(
     install_requires=[
         'Sanic>=0.4.1',
         'Babel>=2.3',
-        'Jinja2>=2.5',
+        'Jinja2>=2.5', 'pytz'
     ],
     classifiers=[
         'Environment :: Web Environment',
